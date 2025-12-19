@@ -1,22 +1,28 @@
-# Reestructuración Operacional: Migración de Infraestructura Crítica a Contenedores Ordenados
+# Reestructuración operacional: Migración de Infraestructura Crítica a Contenedores Ordenados
 *Proyecto realizado por Andrés Larrahona*
 
 ## Objetivo del proyecto
 
 Este proyecto detalla la estrategia utilizada para migrar servicios de infraestructura, automatización de datos (ETL) y *frontends* desde un entorno **Windows Server** centralizado y con despliegues descentralizados hacia una arquitectura **Docker Compose** dedicada.
 
-El objetivo principal fue **mitigar el riesgo operativo, aislar los servicios y centralizar la orquestación**. Al mover los procesos de tareas programadas de Windows a **Apache Airflow**, logramos una plataforma de DataOps estable y con trazabilidad, liberando el servidor de Active Directory/Archivos de cargas ajenas a su función principal.
+El objetivo principal fue **reducir el riesgo operativo, aislar los servicios y centralizar la orquestación**. Al mover los procesos de tareas programadas de Windows y cronjobs de Linux a **Apache Airflow**, logramos una plataforma de DataOps estable y con trazabilidad, liberando el servidor de Active Directory/Archivos de cargas ajenas a su función principal.
 
 
 ---
 
 ## El Desafío: El Contexto Legacy
 
-La configuración anterior, aunque funcional, presentaba vulnerabilidades significativas para un entorno de producción o pre-producción:
+La arquitectura sobre la cual estaba configurada toda la infraestructura, aunque funcional, presentaba vulnerabilidades significativas para un entorno de producción o pre-producción:
 
-* **Descentralización y Riesgo Compartido:** Teniendo servicios, automatizaciones y *frontends* críticos en una misma máquina virtual de forma descentralizada, corriendo terminales en simultáneo (XAMPP, MkDocs, VueJS en `npm run dev`), resultaba extremadamente **difícil tener un seguimiento adecuado de los servicios**. Esta consolidación generaba conflictos de recursos y dependencias, afectando no solo la estabilidad del servidor de Active Directory, sino también su **rendimiento y seguridad**.
-* **Procesos ETL sin Trazabilidad:** Las automatizaciones clave (sincronización de bases de datos y envío de correos) **se ejecutaban mediante *scripts* (`.bat` y *cronjobs*) sin un *framework* de orquestación**. Esta falta de gestión impedía el *logging* centralizado, la definición de SLAs y la capacidad de reintento automático, esenciales para la operación de datos.
-* **Despliegue Inmaduro:** Servir aplicaciones de *front-end* y documentación **desde *runtimes* de desarrollo** (terminales abiertas) o servidores *ad-hoc* (XAMPP) comprometía la eficiencia, el rendimiento y la gestión de versiones.
+* **Descentralización y riesgos:** Teniendo servicios, automatizaciones y *frontends* críticos en una misma máquina virtual de forma descentralizada, corriendo terminales en simultáneo (XAMPP, MkDocs, VueJS en *runtime* de desarrollo `npm run dev`), entre los riesgos que se pueden mencionar, resultaba extremadamente **difícil tener un seguimiento adecuado de los servicios**. Esta arquitectura generaba conflictos de recursos y dependencias, afectando no solo la estabilidad del servidor de Active Directory, sino también su **rendimiento y seguridad**.
+<br/>
+* **Procesos ETL sin trazabilidad:** Las automatizaciones clave (sincronización de bases de datos y envío de correos) **se ejecutaban mediante *scripts* (`.bat` y *cronjobs*) sin un *framework* de orquestación**. Esta falta de gestión impedía el *logging* centralizado, la definición de SLAs y la capacidad de reintento automático, esenciales para la operación de datos.
+
+
+### Infraestructura original
+![Legacy structure](assets/legacystructure.png)
+
+
 
 
 ---
@@ -27,7 +33,7 @@ Se implementó una arquitectura basada en **Docker Compose** en un nuevo *host* 
 
 ### 1. El Nuevo Stack Contenerizado
 
-Se definió la composición de cuatro servicios clave que operan de forma aislada y gestionable:
+Se definió la composición de cinco servicios clave que operan de forma aislada y gestionable:
 
 | Servicio Contenerizado | Función | Valor Operacional (Tech Lead / Operations) |
 | :--- | :--- | :--- |
@@ -37,7 +43,8 @@ Se definió la composición de cuatro servicios clave que operan de forma aislad
 | **Metabase** | Se mantiene misma funcionalidad que en el servidor original. | Servicio aislado y dedicado para el consumo de datos modelados. |
 | **MkDocs** | Se mantiene misma funcionalidad que en el servidor original. | Consistencia del ambiente y facilidad de mantenimiento. |
 
-
+### Propuesta de arquitectura
+![Stack proposal](assets/proposal.png)
 
 
   <details>
@@ -124,6 +131,14 @@ Se buscó centralizar tres procesos críticos en Airflow, transformándolos en D
 - **Envío de Notificaciones Automáticas**: El proceso de notificación a clientes, que se ejecutaba como otra Tarea Programada de Windows, fue migrado para ser gestionado y disparado por Airflow.
 
 - **Carga de Certificados (pdf)  a Data Lake**: Una tarea ejecutada como Cronjob de Ubuntu, que se encargaba de subir archivos PDF de certificados a un Data Lake para su posterior consumo, fue reescrito e integrado como un DAG en la nueva plataforma.
+
+<br/>
+
+![Airflow DAGS screenshot](assets/airflow.png)
+
+### Servicio adicional
+Como se puede observar en la captura de pantalla de la UI de Airflow, se agregó un dag adicional que sirve como **monitoreo del estado de cada uno de los servicios** propuestos en la presente arquitectura (*monitor_lab*). De esta forma, el estado de todos los servicios es reportado a la base de datos MySQL local para monitoreo constante, plasmado en Metabase.
+
 
 ## 3. Conclusiones
 
