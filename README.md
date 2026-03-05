@@ -35,10 +35,24 @@ graph TD
     BAT -->|Sync| Cloud[(Cloud DB)]
     CRON -->|Upload| DL[Data Lake]
     
-    style VM1 fill:#f4f4f4,stroke:#333,stroke-width:2px
-    style VM2 fill:#f4f4f4,stroke:#333,stroke-width:2px
-    style Services fill:#ffffff,stroke:#666,stroke-dasharray: 5 5
-    style AD fill:#e1e8ed,stroke:#036
+    style VM1 fill:#f5f5f5,stroke:#555,stroke-width:1px,color:#222
+    style VM2 fill:#f5f5f5,stroke:#555,stroke-width:1px,color:#222
+    
+    style AD fill:#eaeaea,stroke:#444,color:#111
+    
+    style Services fill:#fafafa,stroke:#777,stroke-dasharray: 5 5,color:#222
+    style WinTasks fill:#fafafa,stroke:#777,stroke-dasharray: 5 5,color:#222
+    
+    style PHP fill:#ffffff,stroke:#666,color:#111
+    style VUE fill:#ffffff,stroke:#666,color:#111
+    style DOC fill:#ffffff,stroke:#666,color:#111
+    style MB fill:#ffffff,stroke:#666,color:#111
+    
+    style BAT fill:#ffffff,stroke:#666,color:#111
+    style CRON fill:#ffffff,stroke:#666,color:#111
+    
+    style Cloud fill:#f0f0f0,stroke:#555,color:#111
+    style DL fill:#f0f0f0,stroke:#555,color:#111
 ```
 
 *   **Resource Conflicts:** Running heterogeneous tools like **XAMPP (PHP)**, **Metabase**, and **MkDocs** on the same VM as the AD server caused performance issues and dependency conflicts.
@@ -58,24 +72,31 @@ The migration introduced a dedicated Docker host where each service runs as an i
 graph TD
     subgraph Host [Dedicated Docker Host]
         subgraph Services [Isolated Containers]
-            Airflow[<b>Apache Airflow</b> <br/> Orchestration]
-            Web[<b>Nginx & Apache</b> <br/> Web Servers]
-            BI[<b>Metabase</b> <br/> BI Platform]
-            Docs[<b>MkDocs</b> <br/> Documentation]
+            Airflow[Apache Airflow<br/>Orchestration]
+            Web[Nginx & Apache<br/>Web Servers]
+            BI[Metabase<br/>BI Platform]
+            Docs[MkDocs<br/>Documentation]
         end
     end
 
-    %% Flujos de trabajo
-    Airflow -->|Automated| Flows(Orchestrated Workflows)
+    Airflow -->|Automated| Flows(Traceable Data Flows)
     
     Flows -->|Sync| Cloud[(Cloud DB)]
     Flows -->|Upload| DL[Data Lake]
     Flows -->|Monitor| BI
 
-    style Host fill:#f8f9fa,stroke:#333,stroke-width:2px
-    style Services fill:#ffffff,stroke:#666,stroke-dasharray: 5 5
-    style Airflow fill:#e1e8ed,stroke:#036,stroke-width:2px
-    style Flows fill:#f8f9fa,stroke:#666
+    style Host fill:#f5f5f5,stroke:#555,stroke-width:1px,color:#222
+    style Services fill:#fafafa,stroke:#777,stroke-dasharray: 5 5,color:#222
+    
+    style Airflow fill:#eaeaea,stroke:#444,stroke-width:1px,color:#111
+    style Web fill:#ffffff,stroke:#666,color:#111
+    style BI fill:#ffffff,stroke:#666,color:#111
+    style Docs fill:#ffffff,stroke:#666,color:#111
+    
+    style Flows fill:#f2f2f2,stroke:#666,color:#111
+    
+    style Cloud fill:#f0f0f0,stroke:#555,color:#111
+    style DL fill:#f0f0f0,stroke:#555,color:#111
 ```
 
 *   **Service Isolation:** Moving tools into independent containers means a failure in one application (like an internal frontend) doesn't affect the rest.
@@ -127,74 +148,75 @@ Finding service failures in the legacy environment often meant manually checking
 <details>
 <summary style="cursor:pointer"><strong>docker-compose.yml (simplified):</strong></summary>
 
-    ```yaml
-        version: '3.8'
+```yaml
+    version: '3.8'
 
-        x-airflow-common: &airflow-common
-            image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.7.1}
-            env_file: [ .env ]
+    x-airflow-common: &airflow-common
+        image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.7.1}
+        env_file: [ .env ]
+        volumes:
+            - ${SERVICES_PATH}/airflow/dags:/opt/airflow/dags
+            - ${SERVICES_PATH}/airflow/logs:/opt/airflow/logs
+        user: "50000:0"
+        depends_on: [ postgres ]
+
+    services:
+        postgres:
+            image: postgres:16
+            environment:
+                POSTGRES_USER: ${POSTGRES_USER}
+                POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+                POSTGRES_DB: ${POSTGRES_DB}
             volumes:
-                - ${SERVICES_PATH}/airflow/dags:/opt/airflow/dags
-                - ${SERVICES_PATH}/airflow/logs:/opt/airflow/logs
-            user: "50000:0"
-            depends_on: [ postgres ]
+                - postgres-db-volume:/var/lib/postgresql/data
+            restart: always
 
-        services:
-            postgres:
-                image: postgres:16
-                environment:
-                    POSTGRES_USER: ${POSTGRES_USER}
-                    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-                    POSTGRES_DB: ${POSTGRES_DB}
-                volumes:
-                    - postgres-db-volume:/var/lib/postgresql/data
-                restart: always
+        mkdocs:
+            build: ${SERVICES_PATH}/mkdocs
+            container_name: centec_mkdocs
+            ports:
+                - "${PORT_MKDOCS}:8000"
+            volumes:
+                - ${VOLUMES_PATH}/mkdocs-data:/docs
+            restart: always
 
-            mkdocs:
-                build: ${SERVICES_PATH}/mkdocs
-                container_name: centec_mkdocs
-                ports:
-                    - "${PORT_MKDOCS}:8000"
-                volumes:
-                    - ${VOLUMES_PATH}/mkdocs-data:/docs
-                restart: always
+        kanban:
+            build: ${SERVICES_PATH}/kanban
+            container_name: centec_kanban
+            ports:
+                - ${PORT_KANBAN}:80
+            restart: always
 
-            kanban:
-                build: ${SERVICES_PATH}/kanban
-                container_name: centec_kanban
-                ports:
-                    - ${PORT_KANBAN}:80
-                restart: always
+        metabase:
+            image: metabase/metabase
+            container_name: centec_metabase
+            ports:
+                - ${PORT_METABASE}:3000
+            volumes:
+                - ${VOLUMES_PATH}/metabase-data:/metabase-data
+            environment:
+                - MB_DB_FILE=/metabase-data/metabase.db
+            restart: always
 
-            metabase:
-                image: metabase/metabase
-                container_name: centec_metabase
-                ports:
-                    - ${PORT_METABASE}:3000
-                volumes:
-                    - ${VOLUMES_PATH}/metabase-data:/metabase-data
-                environment:
-                    - MB_DB_FILE=/metabase-data/metabase.db
-                restart: always
+        apache:
+            build: ./services/apache
+            container_name: centec_apache
+            ports:
+                - "${PORT_APACHE}:80" 
+            volumes:
+                - ${VOLUMES_PATH}/apache_data:/var/www/html
+            restart: always
 
-            apache:
-                build: ./services/apache
-                container_name: centec_apache
-                ports:
-                    - "${PORT_APACHE}:80" 
-                volumes:
-                    - ${VOLUMES_PATH}/apache_data:/var/www/html
-                restart: always
+        airflow_web:
+            <<: *airflow-common
+            container_name: centec_airflow_web
+            ports: ["${PORT_AIRFLOW}:8080"]
+            command: webserver
 
-            airflow_web:
-                <<: *airflow-common
-                container_name: centec_airflow_web
-                ports: ["${PORT_AIRFLOW}:8080"]
-                command: webserver
+        airflow_scheduler:
+            <<: *airflow-common
+            container_name: centec_airflow_scheduler
+            command: scheduler
+```
 
-            airflow_scheduler:
-                <<: *airflow-common
-                container_name: centec_airflow_scheduler
-                command: scheduler
-    ```
 </details>
